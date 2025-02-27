@@ -1,6 +1,7 @@
 import random
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sqlalchemy import text
 from database import db_session, MedicalImage, QuizQuestion, QuizOption
 from .image_service import ImageService
 
@@ -93,4 +94,9 @@ class QuizService:
     
     def generate_multiple_questions(self, amount):
         """Generate multiple quiz questions."""
-        return [self.generate_question() for _ in range(amount)] 
+        result = []
+        for _ in range(amount):
+            question = self.generate_question()
+            if question:  # Only add valid questions
+                result.append(question)
+        return result 

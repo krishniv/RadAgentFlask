@@ -1,9 +1,11 @@
 import os
 import uuid
 from werkzeug.utils import secure_filename
+from sqlalchemy import text
 from config import Config
 from database import db_session, MedicalImage
 from ..modelcaption import generate_medical_description
+import shutil
 
 class ImageService:
     @staticmethod
@@ -26,9 +28,13 @@ class ImageService:
         if not os.path.exists(Config.LOCAL_STORAGE_PATH):
             os.makedirs(Config.LOCAL_STORAGE_PATH, exist_ok=True)
         
-        # Save the file
+        # Save the file - create a temporary copy on disk
         file_path = os.path.join(Config.LOCAL_STORAGE_PATH, unique_filename)
-        file.save(file_path)
+        
+        # For FastAPI's UploadFile we need to use this approach
+        with open(file_path, "wb") as buffer:
+            # Copy file contents to destination
+            shutil.copyfileobj(file.file, buffer)
         
         # Generate description
         description = generate_medical_description(file_path)
@@ -55,9 +61,8 @@ class ImageService:
     @staticmethod
     def get_random_image():
         """Get a random image from the database"""
-        # This could use SQLAlchemy's random() function or similar
-        # For SQLite, we can use ORDER BY RANDOM() LIMIT 1
-        image = db_session.query(MedicalImage).order_by('RANDOM()').first()
+        # Use text() to properly wrap the RANDOM() function
+        image = db_session.query(MedicalImage).order_by(text('RANDOM()')).first()
         
         if not image:
             return None

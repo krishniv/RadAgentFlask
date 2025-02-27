@@ -5,6 +5,12 @@ from api.modelcaption import generate_medical_description
 
 def migrate_existing_images():
     """Migrate existing images to the database."""
+    # Check the count of existing images
+    existing_count = db_session.query(MedicalImage).count()
+    if existing_count >= 100:
+        print("Migration halted: 100 images already in the database.")
+        return  # Exit the function if 100 images are already present
+
     # Get list of image files
     image_files = [f for f in os.listdir(Config.LOCAL_STORAGE_PATH) 
                   if os.path.isfile(os.path.join(Config.LOCAL_STORAGE_PATH, f))
