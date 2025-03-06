@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 from config import Config
-from api.routes import quiz, images
+from api.routes import quiz, images, chat, auth
 
 # Create FastAPI app
 app = FastAPI(title="Medical Agent API")
@@ -24,7 +24,8 @@ app.mount("/images", StaticFiles(directory=Config.LOCAL_STORAGE_PATH), name="ima
 # Include routers
 app.include_router(quiz.router, prefix="/quiz", tags=["quiz"])
 app.include_router(images.router, prefix="/img", tags=["images"])
-# app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(auth.router, prefix="", tags=["auth"])  # The token endpoint should be at /token
 # app.include_router(wallet.router, prefix="/api/wallet", tags=["wallet"])
 
 @app.get("/")

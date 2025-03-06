@@ -162,12 +162,3 @@ xvfbwrapper==0.2.9
 xxhash==3.5.0
 yacs==0.1.8
 yarl==1.9.4
-fastapi==0.95.0
-uvicorn==0.21.1
-sqlalchemy==2.0.7
-python-multipart==0.0.6  # For handling file uploads
-torch==2.0.0  # For the AI model
-transformers==4.28.1  # For the AI model
-Pillow==9.5.0  # For image processing
-scikit-learn==1.2.2  # For TF-IDF and similarity
-werkzeug==2.2.3  # For secure_filename

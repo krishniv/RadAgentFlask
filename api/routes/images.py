@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from typing import Optional
 import logging
 import shutil
 import os
 from ..services.image_service import ImageService
+from ..login import get_current_active_user
+from database import User
 import traceback
 
 # Set up logging
@@ -13,10 +15,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/upload")
-async def upload_image(file: UploadFile = File(...)):
-    """Upload a medical image and generate a description."""
+async def upload_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Upload a medical image and generate a description. Requires user authentication."""
     try:
-        logger.info(f"Received upload request for file: {file.filename}")
+        logger.info(f"User {current_user.username} uploaded file: {file.filename}")
         logger.info(f"File content type: {file.content_type}")
         logger.info(f"File size: {file.size}")
         
@@ -43,8 +48,11 @@ async def upload_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"An error occurred while uploading the image: {str(e)}")
 
 @router.get("/image/{image_id}")
-async def get_image(image_id: int):
-    """Get information about a specific image."""
+async def get_image(
+    image_id: int,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get information about a specific image. Requires user authentication."""
     try:
         image = ImageService.get_image_by_id(image_id)
         
@@ -62,5 +70,5 @@ async def get_image(image_id: int):
 # Simple test endpoint just to verify upload functionality
 @router.post("/test-upload")
 async def test_upload(file: UploadFile = File(...)):
-    """Simple test endpoint for file uploads."""
+    """Simple test endpoint for file uploads. Does not require authentication."""
     return {"filename": file.filename, "content_type": file.content_type} 
