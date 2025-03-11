@@ -5,6 +5,7 @@ import logging
 from ..services.chat_service import ChatService
 from ..login import get_current_active_user
 from database import User
+from config import Config
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -25,13 +26,27 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
-@router.post("/", response_model=ChatResponse)
-async def chat_endpoint(
-    request: ChatRequest, 
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user)
-):
-    """Generate a response to a medical query. Requires user authentication."""
+# Create two versions of the endpoint with and without auth
+if Config.ENABLE_AUTH:
+    @router.post("/", response_model=ChatResponse)
+    async def chat_endpoint(
+        request: ChatRequest, 
+        background_tasks: BackgroundTasks,
+        current_user: User = Depends(get_current_active_user)
+    ):
+        """Generate a response to a medical query. Requires user authentication."""
+        return await process_chat_request(request, current_user.username)
+else:
+    @router.post("/", response_model=ChatResponse)
+    async def chat_endpoint(
+        request: ChatRequest, 
+        background_tasks: BackgroundTasks
+    ):
+        """Generate a response to a medical query. No authentication required."""
+        return await process_chat_request(request, "anonymous")
+
+async def process_chat_request(request: ChatRequest, username: str):
+    """Process chat requests - common function for both auth and non-auth endpoints"""
     try:
         if not request.message:
             raise HTTPException(status_code=400, detail="No message provided.")
@@ -39,9 +54,14 @@ async def chat_endpoint(
         # Get or initialize chat service
         service = get_chat_service()
         
+        # Log the user's request
+        logger.info(f"User {username} sent message: {request.message[:50]}...")
+        
         # Generate response with history if provided
         response = service.generate_response(request.message, request.history)
-        logger.info(f"Generated response for user {current_user.username}, query: {request.message[:50]}...")
+        
+        # Log the successful response generation
+        logger.info(f"Generated response for user {username}, query length: {len(request.message)}")
         
         return {"response": response}
         

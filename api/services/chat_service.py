@@ -1,8 +1,9 @@
-import requests
 import logging
-import json
 import os
+import json
+import re
 from dotenv import load_dotenv
+from huggingface_hub import InferenceClient
 
 # Load environment variables from .env file
 load_dotenv()
@@ -11,115 +12,141 @@ logger = logging.getLogger(__name__)
 
 class ChatService:
     def __init__(self):
-        # API endpoint - get the correct URL from env or use default with v1/completions
-        self.api_url = os.getenv("FRIENDLI_API_URL", "https://api.friendli.ai/dedicated/v1/completions")
+        # Hugging Face configuration
+        self.hf_token = os.getenv("HF_TOKEN")
+        self.model_id = os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
         
-        # Get token from environment variable
-        self.auth_token = os.getenv("FRIENDLI_TOKEN")
-        
-        # Model ID
-        self.model_id = os.getenv("ENDPOINT_ID")
+        # Casual phrases that should get brief responses
+        self.casual_phrases = [
+            "hey", "hi", "hello", "thanks", "thank you", "ok", "okay", 
+            "bye", "goodbye", "see you", "later", "good morning", 
+            "good afternoon", "good evening", "good night", "how are you"
+        ]
         
         # Validate required settings
-        if not self.auth_token or not self.model_id:
-            logger.warning("Missing FRIENDLI_TOKEN or ENDPOINT_ID. Chat service may not function properly.")
+        if not self.hf_token:
+            logger.warning("Missing HF_TOKEN. Chat service may not function properly.")
             
-        logger.info(f"Initialized ChatService with endpoint URL: {self.api_url}")
+        logger.info(f"Initialized ChatService with Hugging Face model: {self.model_id}")
 
     def generate_response(self, user_question, history=None):
-        """Generate a response to a medical query."""
+        """Generate a response to a medical query using Hugging Face models."""
         try:
-            # Format the prompt with medical context and user question
-            prompt = self._create_medical_prompt(user_question, history)
+            # Check if this is a casual message or substantive question
+            is_casual = self._is_casual_message(user_question)
             
-            # Call the API
-            return self._call_friendli_api(prompt)
+            # Format the prompt with medical context and user question
+            prompt = self._create_medical_prompt(user_question, history, is_casual)
+            
+            # Call the Hugging Face model with appropriate params based on message type
+            return self._call_huggingface_model(prompt, is_casual)
             
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             return "I apologize, but I'm having trouble responding right now. Please try again."
     
-    def _create_medical_prompt(self, user_question, history=None):
-        """Create a medical-focused prompt"""
-        # Enhanced medical assistant prompt
-        medical_prompt = (
-            "You are an expert medical assistant with extensive knowledge of medicine, diseases, "
-            "treatments, and healthcare practices. Provide accurate, clear, and helpful information "
-            "to medical questions. Include relevant details about symptoms, treatments, and preventative "
-            "measures when appropriate.\n\n"
-        )
+    def _is_casual_message(self, message):
+        """Determine if a message is casual or a substantive question"""
+        # Convert to lowercase and remove punctuation
+        cleaned = re.sub(r'[^\w\s]', '', message.lower())
+        words = cleaned.split()
+        
+        # Check if it's just a single word or short phrase
+        if len(words) <= 3:
+            # See if any of the words match our casual phrases list
+            for phrase in self.casual_phrases:
+                if phrase in cleaned or cleaned in phrase:
+                    return True
+        
+        # Check if it ends with a question mark (likely a real question)
+        if message.strip().endswith("?"):
+            return False
+            
+        # If the message is very short (less than 10 chars), consider it casual
+        if len(message.strip()) < 10:
+            return True
+            
+        return False
+    
+    def _create_medical_prompt(self, user_question, history=None, is_casual=False):
+        """Create a prompt based on whether it's a casual message or real question"""
+        if is_casual:
+            # Brief, friendly instructions for casual messages
+            system_prompt = (
+                "You are a friendly medical assistant. For brief greetings or simple acknowledgments, "
+                "respond concisely in 1-2 sentences. Be warm but efficient."
+            )
+        else:
+            # Detailed instructions for medical questions
+            system_prompt = (
+                "You are an expert medical assistant with extensive knowledge of medicine, diseases, "
+                "treatments, and healthcare practices. Provide accurate, clear, and helpful information "
+                "to medical questions. Include relevant details about symptoms, treatments, and preventative "
+                "measures when appropriate. Always present information in a well-structured format that's "
+                "easy to understand."
+            )
         
         # Add conversation history if available
+        full_prompt = system_prompt + "\n\n"
         if history:
             for msg in history:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 if role == "user":
-                    medical_prompt += f"User: {content}\n"
+                    full_prompt += f"User: {content}\n"
                 elif role == "assistant":
-                    medical_prompt += f"Assistant: {content}\n"
+                    full_prompt += f"Assistant: {content}\n"
         
         # Add the current question
-        medical_prompt += f"User: {user_question}\nAssistant: "
+        full_prompt += f"User: {user_question}\nAssistant: "
         
-        return medical_prompt
+        return full_prompt
 
-    def _call_friendli_api(self, prompt):
-        """Call the Friendli API with the given prompt"""
-        # Prepare the request payload
-        payload = {
-            "model": self.model_id,
-            "max_tokens": 500,
-            "top_k": 1,
-            "prompt": prompt
-        }
-        
-        # Prepare headers
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {self.auth_token}"
-        }
-        
-        logger.info(f"Sending request to API: {self.api_url}")
-        
+    def _call_huggingface_model(self, prompt, is_casual=False):
+        """Call the Hugging Face model with the given prompt"""
         try:
-            # Make the API call
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=30
+            # Initialize the HF inference client
+            llm_client = InferenceClient(
+                model=self.model_id,
+                token=self.hf_token,
+                timeout=30,
+            )
+            
+            # Format the prompt properly for instruction-tuned models
+            chat_formatted_prompt = f"""<s>[INST] {prompt} [/INST]"""
+            
+            logger.info(f"Sending request to Hugging Face model: {self.model_id} (casual: {is_casual})")
+            
+            # Set parameters based on message type
+            parameters = {
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "do_sample": True,
+                "return_full_text": False
+            }
+            
+            # Adjust token limit based on message type
+            if is_casual:
+                parameters["max_new_tokens"] = 100  # Brief response for casual messages
+            else:
+                parameters["max_new_tokens"] = 500  # Detailed response for medical questions
+            
+            # Call the model
+            response = llm_client.post(
+                json={
+                    "inputs": chat_formatted_prompt,
+                    "parameters": parameters,
+                },
             )
             
             # Process the response
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                    logger.info(f"API response keys: {list(result.keys())}")
-                    
-                    if 'choices' in result and len(result['choices']) > 0:
-                        return result['choices'][0]['text']
-                    elif 'response' in result:
-                        return result['response']
-                    else:
-                        logger.warning(f"Unexpected response structure: {result}")
-                        return "I received a response I couldn't understand."
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse JSON: {response.text[:100]}...")
-                    return "I received an invalid response from my knowledge source."
+            if isinstance(response, bytes):
+                response_text = json.loads(response.decode())[0]["generated_text"]
             else:
-                logger.error(f"API error {response.status_code}: {response.text}")
-                return f"I'm unable to access my knowledge source. (Error: {response.status_code})"
-        
-        except requests.exceptions.Timeout:
-            logger.error("API request timed out")
-            return "The request to my knowledge source timed out. Please try again later."
-        
-        except requests.exceptions.ConnectionError:
-            logger.error("Connection error")
-            return "I couldn't connect to my knowledge source. Please check your internet connection."
-        
+                response_text = response[0]["generated_text"]
+                
+            return response_text.strip()
+            
         except Exception as e:
-            logger.error(f"Unexpected error during API call: {str(e)}")
-            return "An unexpected error occurred while processing your request." 
+            logger.error(f"Error calling Hugging Face model: {e}")
+            return f"I apologize, but I'm having trouble accessing my knowledge source at the moment. Please try again later." 

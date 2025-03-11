@@ -1,11 +1,9 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
-from typing import Optional
 import logging
-import shutil
 import os
+from datetime import datetime
 from ..services.image_service import ImageService
-from ..login import get_current_active_user
-from database import User
+from config import Config
 import traceback
 
 # Set up logging
@@ -15,60 +13,59 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/upload")
-async def upload_image(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Upload a medical image and generate a description. Requires user authentication."""
+async def upload_image(file: UploadFile = File(...)):
+    """Analyze a medical image without saving to database."""
     try:
-        logger.info(f"User {current_user.username} uploaded file: {file.filename}")
+        logger.info(f"Processing image analysis request: {file.filename}")
         logger.info(f"File content type: {file.content_type}")
-        logger.info(f"File size: {file.size}")
         
         # Check if file exists
         if not file:
             logger.error("No file received")
             raise HTTPException(status_code=400, detail="No file received")
             
-        result = ImageService.save_uploaded_file(file)
+        # Check if file type is allowed
+        if not ImageService.allowed_file(file.filename):
+            logger.error(f"Invalid file type: {file.filename}")
+            raise HTTPException(status_code=400, detail="Invalid file type.")
+            
+        # Save file temporarily and analyze
+        temp_file_path = os.path.join(Config.LOCAL_STORAGE_PATH, f"temp_{file.filename}")
+        with open(temp_file_path, "wb") as buffer:
+            file.file.seek(0)  # Ensure we're at the start of the file
+            buffer.write(file.file.read())
         
-        if not result:
-            logger.error(f"Invalid file or file type: {file.filename}")
-            raise HTTPException(status_code=400, detail="Invalid file or file type.")
+        # Generate diagnosis
+        description = ImageService.analyze_image(temp_file_path)
         
-        logger.info(f"File uploaded successfully: {result['filename']}")
+        # Get file size
+        file_size = os.path.getsize(temp_file_path)
+        
+        # Remove temp file - no need to store it
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        
+        logger.info(f"Image analyzed successfully: {file.filename}")
+        
+        # Format response according to requested structure
         return {
-            "message": "File uploaded successfully",
-            "file_info": result
+            "file_info": {
+                "description": description,
+                "filename": file.filename,
+                "size": file_size,
+                "upload_time": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            },
+            "success": True,
+            "message": "Image analyzed successfully"
         }
     
     except Exception as e:
-        logger.error(f"Error uploading image: {e}")
+        logger.error(f"Error processing image: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"An error occurred while uploading the image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-@router.get("/image/{image_id}")
-async def get_image(
-    image_id: int,
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get information about a specific image. Requires user authentication."""
-    try:
-        image = ImageService.get_image_by_id(image_id)
-        
-        if not image:
-            raise HTTPException(status_code=404, detail="Image not found.")
-        
-        return image
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving image: {e}")
-        raise HTTPException(status_code=500, detail="An error occurred while retrieving the image.")
-
-# Simple test endpoint just to verify upload functionality
-@router.post("/test-upload")
-async def test_upload(file: UploadFile = File(...)):
-    """Simple test endpoint for file uploads. Does not require authentication."""
-    return {"filename": file.filename, "content_type": file.content_type} 
+# Simple test endpoint to verify the service is running
+@router.get("/status")
+async def status():
+    """Check if the image service is running."""
+    return {"status": "online", "service": "image analysis"} 

@@ -30,13 +30,21 @@ def get_password_hash(password):
     """Generate password hash."""
     return pwd_context.hash(password)
 
-def authenticate_user(username, password):
-    """Authenticate a user."""
-    user = db_session.query(User).filter(User.username == username).first()
+def authenticate_user(username_or_email, password):
+    """Authenticate a user using email and password."""
+    # Try to find user by email
+    user = db_session.query(User).filter(User.email == username_or_email).first()
+    
+    # If not found by email, fall back to username (for backward compatibility)
+    if not user:
+        user = db_session.query(User).filter(User.username == username_or_email).first()
+        
     if not user:
         return False
+        
     if not verify_password(password, user.password_hash):
         return False
+        
     return user
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -52,7 +60,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Get the current user from token."""
+    """Get the current user from token, using email as the identifier."""
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
@@ -61,14 +69,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        # Use 'email' field instead of 'sub'
+        email: str = payload.get("email")
+        if email is None:
             raise credentials_exception
         
     except jwt.PyJWTError:
         raise credentials_exception
         
-    user = db_session.query(User).filter(User.username == username).first()
+    # Find user by email instead of username
+    user = db_session.query(User).filter(User.email == email).first()
     if user is None:
         raise credentials_exception
         

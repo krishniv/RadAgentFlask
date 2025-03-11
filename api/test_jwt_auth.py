@@ -4,11 +4,21 @@ load_dotenv()
 
 BASE_URL = "http://localhost:8000"
 
-def test_jwt_auth():
-    # 1. Login to get a token
+def test_email_based_jwt_auth():
+    """Test JWT authentication using email address"""
+    # 1. Login using email instead of username
+    print("=== TESTING EMAIL-BASED JWT AUTHENTICATION ===")
+    
+    # Get credentials from env or use defaults
+    test_email = "admin@example.com"  # Should match create_admin.py
+    test_password = "adminpassword"   # Should match create_admin.py
+    
+    print(f"Attempting to login with email: {test_email}")
+    
+    # Note: OAuth2 form requires "username" field even though we're sending an email
     login_data = {
-        "username": "admin", 
-        "password": "adminpassword"
+        "username": test_email,  # Using email in username field
+        "password": test_password
     }
     
     response = requests.post(
@@ -25,10 +35,12 @@ def test_jwt_auth():
         
         # 2. Use the token to access protected endpoints
         headers = {
-            "Authorization": f"Bearer {token}"
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
         }
         
         # Test chat endpoint
+        print("\nTesting protected chat endpoint...")
         chat_response = requests.post(
             f"{BASE_URL}/chat/",
             headers=headers,
@@ -36,24 +48,41 @@ def test_jwt_auth():
         )
         
         print(f"Chat endpoint status: {chat_response.status_code}")
-        print(f"Chat response: {chat_response.json() if chat_response.status_code == 200 else chat_response.text}")
+        if chat_response.status_code == 200:
+            print("Successfully accessed protected chat endpoint!")
+            chat_data = chat_response.json()
+            print(f"Chat response: {chat_data['response'][:100]}...")
+        else:
+            print(f"Failed to access chat endpoint: {chat_response.text}")
         
         # Test images endpoint
+        print("\nTesting protected image endpoint...")
         image_response = requests.get(
             f"{BASE_URL}/img/image/1",
             headers=headers
         )
         
         print(f"Image endpoint status: {image_response.status_code}")
-        print(f"Image response: {image_response.json() if image_response.status_code == 200 else image_response.text}")
+        # Status 404 is acceptable if image with ID 1 doesn't exist
+        if image_response.status_code in [200, 404]:
+            print("Successfully accessed protected image endpoint!")
+        else:
+            print(f"Failed to access image endpoint: {image_response.text}")
         
         # Test quiz endpoint (should work without authentication)
+        print("\nTesting public quiz endpoint...")
         quiz_response = requests.get(f"{BASE_URL}/quiz/generate/1")
         print(f"Quiz endpoint status: {quiz_response.status_code}")
-        print(f"Quiz response: {quiz_response.json() if quiz_response.status_code == 200 else quiz_response.text}")
+        
+        if quiz_response.status_code == 200:
+            print("Successfully accessed public quiz endpoint!")
+        else:
+            print(f"Failed to access quiz endpoint: {quiz_response.text}")
         
     else:
         print(f"Login failed: {response.text}")
 
+    print("\n=== EMAIL-BASED JWT AUTH TEST COMPLETE ===")
+
 if __name__ == "__main__":
-    test_jwt_auth() 
+    test_email_based_jwt_auth() 
