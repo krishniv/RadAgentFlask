@@ -64,6 +64,89 @@ async def upload_image(file: UploadFile = File(...)):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+@router.post("/save")
+async def save_image(file: UploadFile = File(...)):
+    """Upload a medical image, generate a diagnosis, and save to database."""
+    try:
+        logger.info(f"Processing image upload to save: {file.filename}")
+        
+        # Check if file exists
+        if not file:
+            logger.error("No file received")
+            raise HTTPException(status_code=400, detail="No file received")
+            
+        # Save file and generate diagnosis
+        result = ImageService.save_uploaded_file(file)
+        
+        if not result:
+            logger.error(f"Invalid file or file type: {file.filename}")
+            raise HTTPException(status_code=400, detail="Invalid file or file type.")
+        
+        logger.info(f"File uploaded successfully: {result['filename']}")
+        return {
+            "message": "File uploaded and saved successfully",
+            "id": result["id"],
+            "filename": result["filename"],
+            "url": result["url_path"],
+            "diagnosis": result["description"]
+        }
+    
+    except Exception as e:
+        logger.error(f"Error processing image: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+@router.get("/random")
+async def get_random_image():
+    """Get a random image from the database."""
+    try:
+        image = ImageService.get_random_image()
+        
+        if not image:
+            raise HTTPException(status_code=404, detail="No images found in database.")
+        
+        return image
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving random image: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while retrieving the image.")
+
+@router.get("/image/{image_id}")
+async def get_image(image_id: int):
+    """Get information about a specific image."""
+    try:
+        image = ImageService.get_image_by_id(image_id)
+        
+        if not image:
+            raise HTTPException(status_code=404, detail="Image not found.")
+        
+        return image
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving image: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while retrieving the image.")
+
+@router.post("/regenerate/{image_id}")
+async def regenerate_description(image_id: int):
+    """Regenerate the description for an existing image."""
+    try:
+        result = ImageService.regenerate_description(image_id)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Image not found.")
+        
+        return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error regenerating description: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while regenerating the description.")
+
 # Simple test endpoint to verify the service is running
 @router.get("/status")
 async def status():

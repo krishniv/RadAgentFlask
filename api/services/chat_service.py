@@ -39,7 +39,12 @@ class ChatService:
             prompt = self._create_medical_prompt(user_question, history, is_casual)
             
             # Call the Hugging Face model with appropriate params based on message type
-            return self._call_huggingface_model(prompt, is_casual)
+            response = self._call_huggingface_model(prompt, is_casual)
+            
+            # Clean up any remaining User/Assistant markers
+            cleaned_response = self._clean_response(response)
+            
+            return cleaned_response
             
         except Exception as e:
             logger.error(f"Error generating response: {e}")
@@ -83,24 +88,15 @@ class ChatService:
                 "treatments, and healthcare practices. Provide accurate, clear, and helpful information "
                 "to medical questions. Include relevant details about symptoms, treatments, and preventative "
                 "measures when appropriate. Always present information in a well-structured format that's "
-                "easy to understand."
+                "easy to understand. Respond directly without including the original question or using 'User:' "
+                "or 'Assistant:' prefixes in your response."
             )
         
-        # Add conversation history if available
-        full_prompt = system_prompt + "\n\n"
-        if history:
-            for msg in history:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                if role == "user":
-                    full_prompt += f"User: {content}\n"
-                elif role == "assistant":
-                    full_prompt += f"Assistant: {content}\n"
+        # Add the current question without conversation history markers
+        # This prevents the model from learning to output these markers
+        prompt = f"{system_prompt}\n\nQuestion: {user_question}\n\nAnswer:"
         
-        # Add the current question
-        full_prompt += f"User: {user_question}\nAssistant: "
-        
-        return full_prompt
+        return prompt
 
     def _call_huggingface_model(self, prompt, is_casual=False):
         """Call the Hugging Face model with the given prompt"""
@@ -149,4 +145,17 @@ class ChatService:
             
         except Exception as e:
             logger.error(f"Error calling Hugging Face model: {e}")
-            return f"I apologize, but I'm having trouble accessing my knowledge source at the moment. Please try again later." 
+            return f"I apologize, but I'm having trouble accessing my knowledge source at the moment. Please try again later."
+    
+    def _clean_response(self, response):
+        """Clean up the response to remove any User/Assistant markers"""
+        # Remove any lines that start with User: or Assistant:
+        cleaned = re.sub(r'^(User|Assistant|Question|Answer):\s*', '', response, flags=re.MULTILINE)
+        
+        # If the response starts with the question being repeated, remove it
+        lines = cleaned.split('\n')
+        if len(lines) > 1 and any(line.strip().endswith('?') for line in lines[:2]):
+            # Skip the first line if it ends with a question mark
+            cleaned = '\n'.join(lines[1:]).strip()
+            
+        return cleaned 
